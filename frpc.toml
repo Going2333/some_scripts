@@ -1,5 +1,5 @@
 serverAddr = "x.x.x.x"
-serverPort = 7001
+serverPort = 7000
 auth.method = "token"
 auth.token = "your_own_token"
 #不能删除, 否则连接不上会闪退
@@ -8,7 +8,7 @@ loginFailExit=false
 [[proxies]]
 name = "my_socks5"        # 名字随便起，不能重复
 type = "tcp"
-remotePort = 6001         # 【重要】这是你在外网使用代理时连接的端口
+remotePort = 6000         # 【重要】这是你在外网使用代理时连接的端口
 
 # 定义插件类型为 socks5
 [proxies.plugin]
