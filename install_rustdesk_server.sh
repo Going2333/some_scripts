@@ -1,108 +1,148 @@
 #!/bin/bash
-set -e  # 遇到错误立即退出
 
-# 定义颜色输出（增强可读性）
+# ==================================================
+# RustDesk Server Installer for Debian 12
+# Author: Gemini
+# Description: Install hbbs & hbbr with Systemd
+# ==================================================
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # 重置颜色
+YELLOW='\033[0;33m'
+PLAIN='\033[0m'
 
-# 1. 检查并安装 Docker
-echo -e "${YELLOW}=== 检查 Docker 环境 ===${NC}"
-if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}Docker 未安装，开始自动安装...${NC}"
-    # 更新软件源
-    apt update -y
-    # 安装依赖
-    apt install -y ca-certificates curl gnupg lsb-release
-    # 添加 Docker GPG 密钥
-    mkdir -p /etc/apt/trusted.gpg.d
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
-    # 添加 Docker 软件源
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    # 安装 Docker
-    apt update -y
-    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-    # 启动并开机自启 Docker
-    systemctl enable --now docker
-    echo -e "${GREEN}Docker 安装完成！${NC}"
-else
-    echo -e "${GREEN}Docker 已安装，跳过安装步骤${NC}"
-fi
-
-# 2. 创建 RustDesk 数据目录（确保数据持久化）
-echo -e "\n${YELLOW}=== 创建数据目录 ===${NC}"
-mkdir -p /home/rustdesk-server
-RUSTDESK_DIR="/home/rustdesk-server"
-mkdir -p ${RUSTDESK_DIR}/data
-chmod -R 755 ${RUSTDESK_DIR}
-echo -e "${GREEN}数据目录已创建：${RUSTDESK_DIR}${NC}"
-
-# 3. 停止并删除旧的 RustDesk 容器（避免端口冲突）
-echo -e "\n${YELLOW}=== 清理旧容器（如果存在） ===${NC}"
-docker stop rustdesk-hbbs rustdesk-hbbr &> /dev/null || true
-docker rm rustdesk-hbbs rustdesk-hbbr &> /dev/null || true
-echo -e "${GREEN}旧容器清理完成${NC}"
-
-# 4. 启动 RustDesk 服务端容器
-echo -e "\n${YELLOW}=== 启动 RustDesk 服务端 ===${NC}"
-# 获取服务器公网/内网 IP（优先公网）
-SERVER_IP=$(curl -s icanhazip.com || hostname -I | awk '{print $1}')
-
-# 启动 hbbs（ID 注册/中继服务器）
-docker run -d \
-  --name rustdesk-hbbs \
-  --restart always \
-  -p 21115:21115 \
-  -p 21116:21116/tcp \
-  -p 21116:21116/udp \
-  -p 21118:21118 \
-  -v ${RUSTDESK_DIR}/data:/root \
-  rustdesk/rustdesk-server:latest \
-  hbbs -r ${SERVER_IP}:21117
-
-# 启动 hbbr（中继服务器）
-docker run -d \
-  --name rustdesk-hbbr \
-  --restart always \
-  -p 21117:21117 \
-  -p 21119:21119 \
-  -v ${RUSTDESK_DIR}/data:/root \
-  rustdesk/rustdesk-server:latest \
-  hbbr
-
-# 5. 验证启动状态
-echo -e "\n${YELLOW}=== 验证服务状态 ===${NC}"
-sleep 3  # 等待容器启动
-if docker ps | grep -q "rustdesk-hbbs"; then
-    echo -e "${GREEN}hbbs 服务启动成功！${NC}"
-else
-    echo -e "${RED}hbbs 服务启动失败！${NC}"
+# 检查 Root 权限
+if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}错误：请使用 root 用户运行此脚本！${PLAIN}"
     exit 1
 fi
 
-if docker ps | grep -q "rustdesk-hbbr"; then
-    echo -e "${GREEN}hbbr 服务启动成功！${NC}"
-else
-    echo -e "${RED}hbbr 服务启动失败！${NC}"
+echo -e "${GREEN}>>> 正在初始化环境...${PLAIN}"
+apt update -y
+apt install -y curl wget unzip tar ufw
+
+# ==================================================
+# 1. 设置安装参数
+# ==================================================
+INSTALL_DIR="/opt/rustdesk"
+
+echo -e "${YELLOW}>>> [1/4] 配置服务器参数${PLAIN}"
+
+# 自动获取公网 IP
+WAN_IP=$(curl -s -4 ifconfig.me)
+read -p "请输入服务器公网 IP 或域名 [默认: ${WAN_IP}]: " SERVER_IP
+[[ -z "${SERVER_IP}" ]] && SERVER_IP="${WAN_IP}"
+
+echo -e "服务器地址已设置为: ${GREEN}${SERVER_IP}${PLAIN}"
+
+# ==================================================
+# 2. 下载 RustDesk Server
+# ==================================================
+echo -e "${YELLOW}>>> [2/4] 下载最新版 RustDesk Server...${PLAIN}"
+
+# 清理旧文件
+rm -rf ${INSTALL_DIR}
+mkdir -p ${INSTALL_DIR}
+cd ${INSTALL_DIR}
+
+# 获取最新版本下载链接 (Linux x86_64)
+# 注意：这里使用 GitHub API 获取最新 release
+LATEST_URL=$(curl -s https://api.github.com/repos/rustdesk/rustdesk-server/releases/latest | grep "browser_download_url" | grep "x86_64" | cut -d '"' -f 4)
+
+if [[ -z "${LATEST_URL}" ]]; then
+    echo -e "${RED}无法获取最新版本链接，请检查网络或 GitHub API 限制。${PLAIN}"
     exit 1
 fi
 
-# 6. 输出配置信息
-echo -e "\n${GREEN}=== RustDesk 服务端部署完成！ ===${NC}"
-echo -e "服务器 IP：${SERVER_IP}"
-echo -e "hbbs 端口：21115/21116(tcp/udp)/21118"
-echo -e "hbbr 端口：21117/21119"
-echo -e "\n${YELLOW}客户端配置说明：${NC}"
-echo -e "1. 打开 RustDesk 客户端，点击左上角「菜单」→「ID/中继服务器」"
-echo -e "2. ID 服务器：${SERVER_IP}"
-echo -e "3. 中继服务器：${SERVER_IP}"
-echo -e "4. API 服务器：留空"
-echo -e "5. 密钥：可在 ${RUSTDESK_DIR}/data/id_ed25519.pub 文件中查看"
-echo -e "\n查看日志命令："
-echo -e "  docker logs -f rustdesk-hbbs"
-echo -e "  docker logs -f rustdesk-hbbr"
-echo -e "\n停止服务命令："
-echo -e "  docker stop rustdesk-hbbs rustdesk-hbbr"
-echo -e "\n启动服务命令："
-echo -e "  docker start rustdesk-hbbs rustdesk-hbbr"
+echo "正在下载: ${LATEST_URL}"
+wget -O rustdesk-server.zip "${LATEST_URL}"
+unzip rustdesk-server.zip
+mv amd64/* .
+rm -rf amd64 rustdesk-server.zip
+chmod +x hbbs hbbr
+
+# ==================================================
+# 3. 配置 Systemd 服务
+# ==================================================
+echo -e "${YELLOW}>>> [3/4] 配置 Systemd 服务...${PLAIN}"
+
+# --- HBBS (ID Server) Service ---
+# 注意：-r 指定中继服务器地址，-k _ 强制开启 Key 验证
+cat > /etc/systemd/system/rustdesk-hbbs.service <<EOF
+[Unit]
+Description=RustDesk ID Server (hbbs)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/hbbs -r ${SERVER_IP}:21117 -k _
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# --- HBBR (Relay Server) Service ---
+cat > /etc/systemd/system/rustdesk-hbbr.service <<EOF
+[Unit]
+Description=RustDesk Relay Server (hbbr)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/hbbr -k _
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 重载并启动
+systemctl daemon-reload
+systemctl enable rustdesk-hbbs rustdesk-hbbr
+systemctl start rustdesk-hbbs rustdesk-hbbr
+
+# 等待几秒让 Key 生成
+sleep 3
+
+# ==================================================
+# 4. 配置防火墙 & 获取 Key
+# ==================================================
+echo -e "${YELLOW}>>> [4/4] 配置防火墙 & 读取密钥...${PLAIN}"
+
+# 获取公钥
+PUB_KEY=$(cat ${INSTALL_DIR}/id_ed25519.pub)
+
+# 配置 UFW (如果已启用)
+if command -v ufw > /dev/null; then
+    ufw allow 21115:21119/tcp
+    ufw allow 21116/udp
+    echo -e "${GREEN}已通过 UFW 放行 21115-21119 端口${PLAIN}"
+fi
+
+# ==================================================
+# 结束输出
+# ==================================================
+clear
+echo "------------------------------------------------"
+echo "   RustDesk Server 安装完成 (Debian 12)        "
+echo "------------------------------------------------"
+echo -e "ID 服务器 (hbbs):     ${GREEN}${SERVER_IP}${PLAIN}"
+echo -e "中继服务器 (hbbr):    ${GREEN}${SERVER_IP}${PLAIN}"
+echo -e "Key (公钥):           ${GREEN}${PUB_KEY}${PLAIN}"
+echo "------------------------------------------------"
+echo -e "服务状态检查: systemctl status rustdesk-hbbs"
+echo -e "手动查看 Key: cat /opt/rustdesk/id_ed25519.pub"
+echo "------------------------------------------------"
+echo -e "⚠️  重要提示："
+echo -e "1. 如果是云服务器(阿里云/腾讯云/AWS)，请务必在【安全组】放行以下端口："
+echo -e "   - TCP: 21115, 21116, 21117, 21118, 21119"
+echo -e "   - UDP: 21116"
+echo -e "2. 客户端填写 Key 后，连接会加密，更安全。"
+echo "------------------------------------------------"
