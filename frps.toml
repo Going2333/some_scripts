@@ -1,11 +1,11 @@
 # frps.toml Config
-bindPort = 7000                          #端口可自行定义
-kcpBindPort = 7000                       #端口可自行定义
+bindPort = 7000                          # 端口可自行定义
+kcpBindPort = 7000                       # 端口可自行定义
 
 auth.method = "token"
-auth.token = "YOUR TOKEN"                #修改设置自己的token
+auth.token = "YOUR TOKEN"                # 【需编辑】修改设置自己的token
 
 webServer.addr = "0.0.0.0"
-webServer.port = 7500                    #端口可自行定义
-webServer.user = "YOUR USERNAME"         #修改设置自己的用户名
-webServer.password = "YOUR PASSWORD"     #修改设置自己的密码   
+webServer.port = 7500                    # 端口可自行定义
+webServer.user = "YOUR USERNAME"         # 【需编辑】修改设置自己的用户名
+webServer.password = "YOUR PASSWORD"     # 【需编辑】修改设置自己的密码   
