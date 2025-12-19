@@ -32,7 +32,8 @@ fi
 
 # 2. 创建 RustDesk 数据目录（确保数据持久化）
 echo -e "\n${YELLOW}=== 创建数据目录 ===${NC}"
-RUSTDESK_DIR="/opt/rustdesk-server"
+mkdir -p /home/rustdesk-server
+RUSTDESK_DIR="/home/rustdesk-server"
 mkdir -p ${RUSTDESK_DIR}/data
 chmod -R 755 ${RUSTDESK_DIR}
 echo -e "${GREEN}数据目录已创建：${RUSTDESK_DIR}${NC}"
