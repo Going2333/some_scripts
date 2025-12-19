@@ -102,6 +102,7 @@ mkdir -p /etc/frp
 cat > /etc/frp/frps.toml <<EOF
 # frps.toml Config
 bindPort = ${FRPS_PORT}
+kcpBindPort = ${FRPS_PORT}
 
 auth.method = "token"
 auth.token = "${FRPS_TOKEN}"
